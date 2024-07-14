@@ -1,0 +1,171 @@
+--@name SWLIB
+--@author {toby}
+--@server
+
+local S_WEP = class('S_WEP')
+
+local lib_version = '1.2-b'
+
+
+
+function S_WEP:initialize(Debug, DATA, MODELING_FUNC, throw_force)
+    self.pickup_cube = prop.create(chip():getPos() + Vector(0,0,10), Angle(), 'models/sprops/cuboids/height06/size_1/cube_6x6x6.mdl', true)
+    self.pickup_cube:setMass(100)
+    self.pickup_cube:getPhysicsObject():setMaterial('metal')
+    self.pickup_cube:setMaterial('models/debug/debugwhite')
+    if Debug then
+        self.pickup_cube:setColor(Color(255,55,55,150))
+    else
+        self.pickup_cube:setColor(Color(255,55,55,0))
+    end
+    
+    MODELING_FUNC(self.pickup_cube)
+    
+    self.PickedUp = false
+    self.PickedUpBy = nil
+    self.Fire_Bind = DATA['Primary_Fire_Bind']
+    self.Primary_Fire_Bind_Bind = DATA['Primary_Fire_Bind_Bind']
+    
+    self.Primary_Automatic = DATA['Primary_automatic']
+    self.Secondary_Automatic = DATA['Secondary_automatic']
+    
+    self.Fire_Primary_func = DATA['Fire_Primary_func']
+    self.Fire_Primary_release_func = DATA['Fire_Primary_release_func']
+    
+    self.Fire_Secondary_func = DATA['Fire_Secondary_func']
+    self.Fire_Secondary_release_func = DATA['Fire_Secondary_release_func']
+    
+    self.Fire_Primary_delay = DATA['Fire_Primary_delay']
+    self.Fire_Secondary_delay = DATA['Fire_Secondary_delay']
+    
+    self.weap_pos_F_B = DATA['weap_pos_F_B']
+    self.weap_pos_R_L = DATA['weap_pos_R_L']
+    self.weap_pos_U_D = DATA['weap_pos_U_D']
+    
+    self.pickup_drop_dely = 0.3
+    self.dely_ = false
+    
+    self.Dely_Primary_Fire_Bind = false
+    self.Dely_Primary_Fire_Bind = false
+    
+    self.shooting = false
+    self.shooting_alt = false
+    
+    hook.add('KeyPress', table.address(self)..'_swep_attack', function(ply, key)
+        if key == IN_KEY.USE then
+            if ply == nil then return end
+            
+            local Dist = ply:getPos():getDistance(self.pickup_cube:getPos())
+            if self.PickedUp == true and self.PickedUpBy == ply and self.dely_ == false then
+                self.PickedUp = false
+                self.PickedUpBy = nil
+                self.pickup_cube:setFrozen(false)
+                self.pickup_cube:setNocollideAll(false)
+                
+                if self.Fire_Primary_release_func != nil then
+                    self.Fire_Primary_release_func(self)
+                end
+                if self.Fire_Secondary_release_func != nil then
+                    self.Fire_Secondary_release_func(self)
+                end
+                
+                self.dely_ = true
+                timer.create('pickup_drop_dely', self.pickup_drop_dely, 1, function()
+                    self.dely_ = false
+                end)
+                
+                self.pickup_cube:applyForceCenter((self.Q1:getForward() * self.pickup_cube:getMass()) * throw_force)
+            end
+            if self.PickedUp == false and self.PickedUpBy == nil and Dist <= 50 and self.dely_ == false then
+                if ply:getEyeTrace().Entity != self.pickup_cube then return end
+                self.PickedUp = true
+                self.PickedUpBy = ply
+                self.pickup_cube:setNocollideAll(true)
+                self.pickup_cube:setFrozen(true)
+                self.dely_ = true
+                timer.create('pickup_drop_dely', self.pickup_drop_dely, 1, function()
+                    self.dely_ = false
+                end)
+            end
+        end
+        
+        if key == self.Fire_Bind then
+            if ply == nil or ply != self.PickedUpBy then return end
+            if self.Primary_Automatic then
+                self.Fire_Primary_func(self)
+                self.shooting = true
+                timer.create(table.address(self)..'_primary_fire', self.Fire_Primary_delay, 0, self.Fire_Primary_func)
+            elseif self.Dely_Primary_Fire_Bind == false then
+                self.Fire_Primary_func(self)
+                self.Dely_Primary_Fire_Bind = true
+                
+                timer.create(table.address(self)..'_primary_fire_rels', 0, 1, function()
+                    self.Fire_Primary_release_func(self)
+                end)
+                timer.create(table.address(self)..'_primary_fire', self.Fire_Primary_delay, 1, function()
+                    self.Dely_Primary_Fire_Bind = false
+                end)
+                
+            end
+        end
+        if key == self.Primary_Fire_Bind_Bind then
+            if ply == nil or ply != self.PickedUpBy then return end
+            if self.Secondary_Automatic then
+                self.Fire_Secondary_func(self)
+                self.shooting_alt = true
+                timer.create(table.address(self)..'_secondary_fire', self.Fire_Secondary_delay, 0, self.Fire_Secondary_func)
+            elseif self.Dely_Primary_Fire_Bind == false then
+                self.Dely_Primary_Fire_Bind = true
+                self.Fire_Secondary_func(self)
+                
+                timer.create(table.address(self)..'_secondary_rels', 0, 1, function()
+                    self.Fire_Secondary_release_func(self)
+                end)
+                timer.create(table.address(self)..'_secondary_fire', self.Fire_Secondary_delay, 1, function()
+                    self.Dely_Primary_Fire_Bind = false
+                end)
+            end
+        end
+    end)
+    
+    hook.add('KeyRelease', table.address(self)..'_swep_attack_stopped', function(ply, key)
+        if ply == nil or ply != self.PickedUpBy then return end
+        
+        if key == self.Fire_Bind and self.shooting then
+            self.shooting = false
+            self.Fire_Primary_release_func(self)
+            timer.remove(table.address(self)..'_primary_fire')
+        end
+        if key == self.Primary_Fire_Bind_Bind and shooting_alt then
+            self.shooting_alt = false
+            self.Fire_Secondary_release_func(self)
+            timer.remove(table.address(self)..'_secondary_fire')
+        end
+    end)
+    
+    hook.add('tick', table.address(self)..'swep_think', function()
+        if self.PickedUpBy != nil and not self.PickedUpBy:isAlive() then
+            self.PickedUpBy = nil
+            self.PickedUp = false
+            self.pickup_cube:setFrozen(false)
+        end
+        
+        if self.PickedUpBy != nil then
+            self.Q1 = self.PickedUpBy:getEyeAngles():getQuaternion()
+            self.pickup_cube:setPos(self.PickedUpBy:getEyePos() + (self.Q1:getRight() * self.weap_pos_R_L) + (self.Q1:getForward() * self.weap_pos_F_B) - (self.Q1:getUp() * self.weap_pos_U_D))
+            self.pickup_cube:setAngles(self.Q1:getEulerAngle())
+        end 
+    end)
+end
+
+function S_WEP:getPos()
+    return self.pickup_cube:getPos()
+end
+function S_WEP:getAngles()
+    return self.pickup_cube:getAngles()
+end
+function S_WEP:getEntity()
+    return self.pickup_cube
+end
+
+return S_WEP
