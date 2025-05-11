@@ -1,0 +1,35 @@
+--@name PACLOADER EXAMPLE
+--@author {toby}
+--@shared
+--@include libs/pacloader/pac_loader.txt
+
+local PACLOADER = require('libs/pacloader/pac_loader.txt')
+
+-- theres a directory in your data folder
+-- data/sf_filedata/pac_to_holo/<your pac3 files>
+
+if CLIENT then
+    PACLOADER.SEND_PAC_FILE('') -- pac3 file name
+end
+
+if SERVER then
+    --only supports server loading rn    
+    PACLOADER.LOAD_PAC_DATA(function()
+        --this function VVV can return a table of holograms to do stuff with later in the program
+        --and has a onfinished function with a table of parts so you can do stuff with the holograms when it finished loading them
+        PACLOADER.LOAD_PAC('my outfit', chip(), 1, function(parts)--args: group name, entity to parent to/root prop, scale, onFinishedFunc
+            
+        end)
+    end)
+    
+    
+    --LIST OF FUNCTIONS YOU CAN USE
+    --[[
+        holograms: table of holograms
+        name: name of part in the pac file
+        PAC_LOADER.GET_PART(holograms, name)
+        
+        
+        MIGHT BE MORE LATER \_(.^.)_/
+    --]]
+end
