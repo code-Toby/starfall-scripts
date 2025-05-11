@@ -1,0 +1,116 @@
+--@name obj_loader_lib
+--@author {toby}
+--@shared
+
+objLoader = {}
+objLoader.ModelQueue = {}
+objLoader.ModelCache = {}
+objLoader.HttpCount = 0
+
+
+objLoader.loadModel = function(path, ent) -- SHARED
+
+end
+
+objLoader.loadModelUrl = function(url, ent) -- SERVER
+    if SERVER then
+        local newUrl = url
+        
+        if string.startsWith(url, 'https://www.dropbox.com/') then
+            newUrl = http.urlDropboxToRaw(url)
+        elseif string.startsWith(url, 'https://drive.google.com/') then
+            newUrl = http.urlGoogleDriveToRaw(url)
+        end
+        
+        table.insert(objLoader.ModelQueue, {newUrl, ent})
+    else
+       error('LoadModelUrl needs to be run in serverside') 
+    end
+end
+
+objLoader.handleMeshs = function()  -- SHARED
+    if SERVER then
+        net.start('HandleMeshes')
+        net.writeTable(objLoader.ModelQueue)
+        net.send()
+    end
+    
+    if CLIENT then
+        local function BuildMesh(url, meshData, ent)
+            local MeshTables, MeshData = {}
+            local Mesh = nil            
+    
+            local loading_mesh = coroutine.wrap(function() 
+                MeshTables, MeshData = mesh.parseObj(meshData, true, true)  
+                return true 
+            end)
+                    
+            hook.add("think","loadingMesh",function()
+                while chip():getQuotaAverage()<chip():getQuotaMax()/2 do
+                    if loading_mesh() then
+                        MeshTables = table.clearKeys(MeshTables)
+                                        
+                        local finished_mesh_table = {}
+                        for k, v in pairs(MeshTables) do
+                            table.add(finished_mesh_table, MeshTables[k])
+                        end
+                                                                                    
+                        Mesh = mesh.createFromTable(finished_mesh_table, false)
+                        table.insert(objLoader.ModelCache, {['key']=url, ['Mesh']=Mesh})
+                        
+                        ent:setMesh(Mesh)
+                        ent:setRenderBounds(Vector(-2000000000),Vector(2000000000))
+                            
+                        hook.remove("think","loadingMesh")
+                        return
+                    end
+                end
+            end)
+        end
+        
+        local function HandleUrl(url, ent)
+            local co = coroutine.running()
+
+            for k, v in pairs(objLoader.ModelCache) do
+                if v.key == url then
+                                
+                    ent:setMesh(v.Mesh)
+                    ent:setRenderBounds(Vector(-200),Vector(200))
+                    
+                    return
+                end
+            end
+
+            objLoader.HttpCount = objLoader.HttpCount + 1
+            http.get(url, function(meshdata)
+                
+                BuildMesh(url, meshdata, ent)
+                
+                if objLoader.HttpCount >= http.getMaximumRequests() then
+                    if coroutine.status(co) != 'dead' then
+                        coroutine.resume(co)
+                    end
+                end
+                
+                objLoader.HttpCount = objLoader.HttpCount - 1
+            end)
+            
+            
+            if objLoader.HttpCount >= http.getMaximumRequests() then
+                coroutine.yield()
+            end
+        end
+        
+        net.receive('HandleMeshes', function()
+            local DATA = net.readTable()
+            
+            coroutine.wrap(function()
+                for _, v in pairs(DATA) do
+                    HandleUrl(v[1], v[2])
+                end
+            end)()
+        end)
+    end
+end
+
+return objLoader
